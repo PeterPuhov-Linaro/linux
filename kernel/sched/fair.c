@@ -6100,7 +6100,7 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int t
 		return -1;
 
 	if (sched_feat(SIS_PROP)) {
-		floor = cpumask_weight(topology_sibling_cpumask(target));
+		floor = topology_sibling_weight(target);
 		if (floor < 2)
 			floor = 2;
 		nr = (p->latency_nice * sd->span_weight) / LATENCY_NICE_MAX;
