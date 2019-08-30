@@ -6083,7 +6083,7 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int t
 	u64 time, cost;
 	s64 delta;
 	int this = smp_processor_id();
-	int cpu, nr = INT_MAX;
+	int cpu, floor, nr = INT_MAX;
 
 	this_sd = rcu_dereference(*this_cpu_ptr(&sd_llc));
 	if (!this_sd)
@@ -6100,11 +6100,12 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, int t
 		return -1;
 
 	if (sched_feat(SIS_PROP)) {
-		u64 span_avg = sd->span_weight * avg_idle;
-		if (span_avg > 4*avg_cost)
-			nr = div_u64(span_avg, avg_cost);
-		else
-			nr = 4;
+		floor = cpumask_weight(topology_sibling_cpumask(target));
+		if (floor < 2)
+			floor = 2;
+		nr = (p->latency_nice * sd->span_weight) / LATENCY_NICE_MAX;
+		if (nr < floor)
+			nr = floor;
 	}
 
 	time = cpu_clock(this);
