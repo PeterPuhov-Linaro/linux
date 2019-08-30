@@ -10925,6 +10925,7 @@ int alloc_fair_sched_group(struct task_group *tg, struct task_group *parent)
 		goto err;
 
 	tg->shares = NICE_0_LOAD;
+	tg->latency_nice = LATENCY_NICE_DEFAULT;
 
 	init_cfs_bandwidth(tg_cfs_bandwidth(tg));
 

@@ -6652,6 +6652,7 @@ void __init sched_init(void)
 		init_dl_rq(&rq->dl);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
+		root_task_group.latency_nice = LATENCY_NICE_DEFAULT;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
 		rq->tmp_alone_branch = &rq->leaf_cfs_rq_list;
 		/*
@@ -7035,6 +7036,7 @@ static void sched_change_group(struct task_struct *tsk, int type)
 	 */
 	tg = container_of(task_css_check(tsk, cpu_cgrp_id, true),
 			  struct task_group, css);
+	tsk->latency_nice = tg->latency_nice;
 	tg = autogroup_task_group(tsk, tg);
 	tsk->sched_task_group = tg;
 
@@ -7683,6 +7685,34 @@ static u64 cpu_rt_period_read_uint(struct cgroup_subsys_state *css,
 }
 #endif /* CONFIG_RT_GROUP_SCHED */
 
+static u64 cpu_latency_nice_read_u64(struct cgroup_subsys_state *css,
+				     struct cftype *cft)
+{
+	struct task_group *tg = css_tg(css);
+
+	return tg->latency_nice;
+}
+
+static int cpu_latency_nice_write_u64(struct cgroup_subsys_state *css,
+				      struct cftype *cft, u64 latency_nice)
+{
+	struct task_group *tg = css_tg(css);
+	struct css_task_iter it;
+	struct task_struct *p;
+
+	if (latency_nice < LATENCY_NICE_MIN || latency_nice > LATENCY_NICE_MAX)
+		return -ERANGE;
+
+	tg->latency_nice = latency_nice;
+
+	css_task_iter_start(css, 0, &it);
+	while ((p = css_task_iter_next(&it)))
+		p->latency_nice = latency_nice;
+	css_task_iter_end(&it);
+
+	return 0;
+}
+
 static struct cftype cpu_legacy_files[] = {
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	{
@@ -7733,6 +7763,11 @@ static struct cftype cpu_legacy_files[] = {
 		.write = cpu_uclamp_max_write,
 	},
 #endif
+	{
+		.name = "latency-nice",
+		.read_u64 = cpu_latency_nice_read_u64,
+		.write_u64 = cpu_latency_nice_write_u64,
+	},
 	{ }	/* Terminate */
 };
 
@@ -7914,6 +7949,11 @@ static struct cftype cpu_files[] = {
 		.write = cpu_uclamp_max_write,
 	},
 #endif
+	{
+		.name = "latency-nice",
+		.read_u64 = cpu_latency_nice_read_u64,
+		.write_u64 = cpu_latency_nice_write_u64,
+	},
 	{ }	/* terminate */
 };
 

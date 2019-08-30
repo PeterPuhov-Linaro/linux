@@ -143,6 +143,13 @@ extern long calc_load_fold_active(struct rq *this_rq, long adjust);
 #define NICE_0_LOAD		(1L << NICE_0_LOAD_SHIFT)
 
 /*
+ * Latency-nice default value
+ */
+#define	LATENCY_NICE_DEFAULT	5
+#define	LATENCY_NICE_MIN	1
+#define	LATENCY_NICE_MAX	100
+
+/*
  * Single value that decides SCHED_DEADLINE internal math precision.
  * 10 -> just above 1us
  * 9  -> just above 0.5us
@@ -359,6 +366,7 @@ struct cfs_bandwidth {
 /* Task group related information */
 struct task_group {
 	struct cgroup_subsys_state css;
+	u64 latency_nice;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* schedulable entities of this group on each CPU */
