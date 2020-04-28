@@ -24,6 +24,9 @@
 
 #include <trace/events/sched.h>
 
+
+int sysctl_sched_default_latency_nice = DEFAULT_LATENCY_NICE;
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
