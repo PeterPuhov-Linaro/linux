@@ -89,6 +89,8 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 
+static unsigned long cpu_util_next(int cpu, struct task_struct *p, int dst_cpu);
+
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -5895,8 +5897,11 @@ static inline int find_idlest_cpu(struct sched_domain *sd, struct task_struct *p
 	 * We need task's util for cpu_util_without, sync it up to
 	 * prev_cpu's last_update_time.
 	 */
-	if (!(sd_flag & SD_BALANCE_FORK))
+	if (!(sd_flag & SD_BALANCE_FORK)) {
 		sync_entity_load_avg(&p->se);
+		if(!sched_feat(WA_IDLE))
+			return prev_cpu;
+	}
 
 	while (sd) {
 		struct sched_group *group;
@@ -6181,6 +6186,11 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	}
 
 symmetric:
+
+	if(!sched_feat(WA_IDLE)) {
+		return 	prev;
+	}
+
 	if (available_idle_cpu(target) || sched_idle_cpu(target))
 		return target;
 
@@ -8669,7 +8679,8 @@ static bool update_pick_idlest(struct sched_group *idlest,
 			return false;
 
 		/* Select group with lowest group_util */
-		if (idlest_sgs->group_util < sgs->group_util)
+		if (idlest_sgs->idle_cpus == sgs->idle_cpus &&
+			idlest_sgs->group_util <= sgs->group_util)
 			return false;
 		break;
 	}
@@ -9488,6 +9499,10 @@ redo:
 		goto out_balanced;
 	}
 
+	if(idle == CPU_NEWLY_IDLE && !sched_feat(WA_IDLE)) {
+		goto out_balanced;
+	}
+
 	group = find_busiest_group(&env);
 	if (!group) {
 		schedstat_inc(sd->lb_nobusyg[idle]);
@@ -9516,7 +9531,7 @@ redo:
 		 * correctly treated as an imbalance.
 		 */
 		env.flags |= LBF_ALL_PINNED;
-		env.loop_max  = min(sysctl_sched_nr_migrate, busiest->nr_running);
+		env.loop_max  = min(sysctl_sched_nr_migrate, busiest->nr_running -1);
 
 more_balance:
 		rq_lock_irqsave(busiest, &rf);
