@@ -1254,6 +1254,15 @@ static inline unsigned long task_faults(struct task_struct *p, int nid)
 		p->numa_faults[task_faults_idx(NUMA_MEM, nid, 1)];
 }
 
+static inline unsigned long task_faults_current(struct task_struct *p, int nid)
+{
+	if (!p->numa_faults)
+		return 0;
+
+	return p->numa_faults[task_faults_idx(NUMA_MEMBUF, nid, 0)] +
+		p->numa_faults[task_faults_idx(NUMA_MEMBUF, nid, 1)];
+}
+
 static inline unsigned long group_faults(struct task_struct *p, int nid)
 {
 	struct numa_group *ng = deref_task_numa_group(p);
@@ -2004,6 +2013,7 @@ static int task_numa_migrate(struct task_struct *p)
 	 * elsewhere, so there is no point in (re)trying.
 	 */
 	if (unlikely(!sd)) {
+		trace_sched_preferred_nid(p, task_node(p), __LINE__);
 		sched_setnuma(p, task_node(p));
 		return -EINVAL;
 	}
@@ -2067,8 +2077,10 @@ static int task_numa_migrate(struct task_struct *p)
 		else
 			nid = cpu_to_node(env.best_cpu);
 
-		if (nid != p->numa_preferred_nid)
+		if (nid != p->numa_preferred_nid) {
+			trace_sched_preferred_nid(p, nid, __LINE__);
 			sched_setnuma(p, nid);
+		}
 	}
 
 	/* No better CPU than the current one was found. */
@@ -2382,6 +2394,10 @@ static void task_numa_placement(struct task_struct *p)
 		spin_lock_irq(group_lock);
 	}
 
+	for_each_online_node(nid) {
+		trace_sched_numa_stats(p, nid, task_faults(p, nid), task_faults_current(p, nid));
+	}
+	
 	/* Find the node with the highest number of faults */
 	for_each_online_node(nid) {
 		/* Keep track of the offsets in numa_faults array */
@@ -2434,6 +2450,8 @@ static void task_numa_placement(struct task_struct *p)
 			}
 		}
 
+		trace_sched_numa_faults(p, nid, ng, faults, group_faults);
+		
 		if (!ng) {
 			if (faults > max_faults) {
 				max_faults = faults;
@@ -2453,8 +2471,10 @@ static void task_numa_placement(struct task_struct *p)
 
 	if (max_faults) {
 		/* Set the new preferred node */
-		if (max_nid != p->numa_preferred_nid)
+		if (max_nid != p->numa_preferred_nid){
+			trace_sched_preferred_nid(p, max_nid, __LINE__);
 			sched_setnuma(p, max_nid);
+		}
 	}
 
 	update_task_scan_period(p, fault_types[0], fault_types[1]);

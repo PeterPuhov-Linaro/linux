@@ -115,14 +115,39 @@ struct bench_mem_info {
 	bool alloc_src;
 };
 
+#include <sched.h>
+#include <numaif.h>
+       
 static void __bench_mem_function(struct bench_mem_info *info, int r_idx, size_t size, double size_total)
 {
 	const struct function *r = &info->functions[r_idx];
 	double result_bps = 0.0;
-	u64 result_cycles = 0;
-	void *src = NULL, *dst = zalloc(size);
+	u64 result_cycles = 0;	
+	void *src = NULL, *dst = NULL;
+	int numa_node;
+	long unsigned int i;
+	uint8_t * ptr;
+	int nodes[4] = {0,0,0,0};
+	
+	printf("# Allocation started on CPU %d\n", sched_getcpu());
+	dst = zalloc(size);
+	printf("# Allocation finished on CPU %d\n", sched_getcpu());
 
 	printf("# function '%s' (%s)\n", r->name, r->desc);
+
+	ptr = dst;
+	for(i = 0; i < size / 4096; i++) {
+		numa_node = -1;		
+		get_mempolicy(&numa_node, NULL, 0, (void *)ptr, MPOL_F_NODE | MPOL_F_ADDR);
+		nodes[numa_node] ++;
+		ptr += 4096;
+	}
+
+	for (i = 0; i < 4; i++) {
+		printf("# Node %ld pages %d\n", i, nodes[i]);
+		nodes[i] = 0;
+	}
+
 
 	if (dst == NULL)
 		goto out_alloc_failed;
@@ -142,6 +167,19 @@ static void __bench_mem_function(struct bench_mem_info *info, int r_idx, size_t 
 		result_bps = info->do_gettimeofday(r, size, src, dst);
 	}
 
+	ptr = dst;
+	for(i = 0; i < size / 4096; i++) {
+		numa_node = -1;		
+		get_mempolicy(&numa_node, NULL, 0, (void *)ptr, MPOL_F_NODE | MPOL_F_ADDR);
+		nodes[numa_node] ++;
+		ptr += 4096;
+	}
+
+	for (i = 0; i < 4; i++) {
+		printf("# Node %ld pages %d\n", i, nodes[i]);
+		nodes[i] = 0;
+	}
+	
 	switch (bench_format) {
 	case BENCH_FORMAT_DEFAULT:
 		if (use_cycles) {

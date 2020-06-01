@@ -523,6 +523,82 @@ TRACE_EVENT(sched_move_numa,
 			__entry->dst_cpu, __entry->dst_nid)
 );
 
+TRACE_EVENT(sched_preferred_nid,
+
+	TP_PROTO(struct task_struct *tsk, int preferred_nid, int line),
+
+	TP_ARGS(tsk, preferred_nid, line),
+
+	TP_STRUCT__entry(
+		__field( pid_t,	pid				)
+		__field( int,	preferred_nid	)
+		__field( int,	line		)
+	),
+
+	TP_fast_assign(
+		__entry->pid			= task_pid_nr(tsk);
+		__entry->preferred_nid	= preferred_nid;
+		__entry->line			= line;
+	),
+
+	TP_printk("pid=%d preferred_nid=%d line=%d",
+			__entry->pid,
+			__entry->preferred_nid, __entry->line)
+);
+
+TRACE_EVENT(sched_numa_faults,
+
+	TP_PROTO(struct task_struct *tsk, int nid, struct numa_group *ng, unsigned long faults, unsigned long group_faults),
+
+	TP_ARGS(tsk, nid, ng, faults, group_faults),
+
+	TP_STRUCT__entry(
+		__field( pid_t,			pid				)
+		__field( int,			nid				)
+		__field( u64,			ng				)
+		__field( unsigned long,	faults			)
+		__field( unsigned long,	group_faults	)
+	),
+
+	TP_fast_assign(
+		__entry->pid			= task_pid_nr(tsk);
+		__entry->nid			= nid;
+		__entry->ng				= (u64)ng;
+		__entry->faults			= faults;
+		__entry->group_faults	= group_faults;
+	),
+
+	TP_printk("pid=%d nid=%d ng=%Lx faults=%ld group_faults=%ld",
+			__entry->pid, __entry->nid, __entry->ng,
+			__entry->faults, __entry->group_faults)
+);
+
+TRACE_EVENT(sched_numa_stats,
+
+	TP_PROTO(struct task_struct *tsk, int nid, unsigned long task_faults, unsigned long task_faults_current),
+
+	TP_ARGS(tsk, nid, task_faults, task_faults_current),
+
+	TP_STRUCT__entry(
+		__field( pid_t,			pid					)
+		__field( int,			nid					)
+		__field( unsigned long,	task_faults			)
+		__field( unsigned long,	task_faults_current	)
+		
+	),
+
+	TP_fast_assign(
+		__entry->pid					= task_pid_nr(tsk);
+		__entry->nid					= nid;
+		__entry->task_faults			= task_faults;
+		__entry->task_faults_current	= task_faults_current;		
+	),
+
+	TP_printk("pid=%d nid=%d task_faults=%ld task_faults_current=%ld",
+			__entry->pid, __entry->nid, 
+			__entry->task_faults, __entry->task_faults_current)
+);
+
 DECLARE_EVENT_CLASS(sched_numa_pair_template,
 
 	TP_PROTO(struct task_struct *src_tsk, int src_cpu,
