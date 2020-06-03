@@ -85,6 +85,8 @@ unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+const_debug unsigned int sysctl_sched_check_group_util	= 0;
+
 
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
@@ -8691,6 +8693,13 @@ static bool update_pick_idlest(struct sched_group *idlest,
 		break;
 
 	case group_has_spare:
+		if(sysctl_sched_check_group_util == 0){
+
+		if (idlest_sgs->idle_cpus >= sgs->idle_cpus)
+			return false;
+
+		} else  {
+
 		/* Select group with most idle CPUs */
 		if (idlest_sgs->idle_cpus > sgs->idle_cpus)
 			return false;
@@ -8700,6 +8709,7 @@ static bool update_pick_idlest(struct sched_group *idlest,
 			idlest_sgs->group_util <= sgs->group_util)
 			return false;
 
+		}
 		break;
 	}
 
