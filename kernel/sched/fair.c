@@ -85,6 +85,8 @@ unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+const_debug unsigned int sysctl_sched_enable_task_numa_init	= 0;
+
 
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
@@ -6610,6 +6612,14 @@ fail:
 	return -1;
 }
 
+static void
+task_numa_init(struct task_struct *p, int new_cpu)
+{
+	if(p->numa_preferred_nid == NUMA_NO_NODE) {
+		p->numa_preferred_nid = cpu_to_node(new_cpu);
+	}
+}
+
 /*
  * select_task_rq_fair: Select target runqueue for the waking task in domains
  * that have the 'sd_flag' flag set. In practice, this is SD_BALANCE_WAKE,
@@ -6680,6 +6690,14 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 			current->recent_used_cpu = cpu;
 	}
 	rcu_read_unlock();
+
+	/* For newly created task update numa_preferred_nid according
+	 * to memory policy.
+	 */ 
+	if (sysctl_sched_enable_task_numa_init)
+		if(sd_flag & (SD_BALANCE_FORK | SD_BALANCE_EXEC)) {
+			task_numa_init(p, new_cpu);
+		}
 
 	return new_cpu;
 }
