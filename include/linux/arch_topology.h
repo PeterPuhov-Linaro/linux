@@ -10,6 +10,9 @@
 
 void topology_normalize_cpu_scale(void);
 int topology_update_cpu_topology(void);
+void topology_scale_freq_tick(void);
+int topology_set_scale_freq_tick(void *ptr, const struct cpumask *cpus);
+void topology_remove_scale_freq_tick(void *ptr);
 
 struct device_node;
 bool topology_parse_cpu_capacity(struct device_node *cpu_node, int cpu);
@@ -29,8 +32,6 @@ static inline unsigned long topology_get_freq_scale(int cpu)
 {
 	return per_cpu(freq_scale, cpu);
 }
-
-bool arch_freq_counters_available(struct cpumask *cpus);
 
 DECLARE_PER_CPU(unsigned long, thermal_pressure);
 

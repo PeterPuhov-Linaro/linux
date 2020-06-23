@@ -21,11 +21,47 @@
 #include <linux/sched.h>
 #include <linux/smp.h>
 
-__weak bool arch_freq_counters_available(struct cpumask *cpus)
+static void (*scale_freq_tick)(void);
+static cpumask_var_t freq_tick_cpus;
+
+int topology_set_scale_freq_tick(void *ptr, const struct cpumask *cpus)
 {
-	return false;
+	if (scale_freq_tick)
+		return -EBUSY;
+
+	if (!zalloc_cpumask_var(&freq_tick_cpus, GFP_KERNEL))
+		return -ENOMEM;
+
+	cpumask_copy(freq_tick_cpus, cpus);
+	scale_freq_tick = ptr;
+	return 0;
 }
+EXPORT_SYMBOL_GPL(topology_set_scale_freq_tick);
+
+void topology_remove_scale_freq_tick(void *ptr)
+{
+	if (scale_freq_tick == ptr) {
+		free_cpumask_var(freq_tick_cpus);
+		scale_freq_tick = NULL;
+	} else {
+		pr_err("%s: Invalid argument\n", __func__);
+	}
+}
+EXPORT_SYMBOL_GPL(topology_remove_scale_freq_tick);
+
+void topology_scale_freq_tick(void)
+{
+	if (scale_freq_tick)
+		scale_freq_tick();
+}
+
+static bool support_scale_freq_tick(struct cpumask *cpus)
+{
+	return scale_freq_tick && cpumask_subset(cpus, freq_tick_cpus);
+}
+
 DEFINE_PER_CPU(unsigned long, freq_scale) = SCHED_CAPACITY_SCALE;
+EXPORT_SYMBOL_GPL(freq_scale);
 
 void arch_set_freq_scale(struct cpumask *cpus, unsigned long cur_freq,
 			 unsigned long max_freq)
@@ -38,7 +74,7 @@ void arch_set_freq_scale(struct cpumask *cpus, unsigned long cur_freq,
 	 * want to update the scale factor with information from CPUFREQ.
 	 * Instead the scale factor will be updated from arch_scale_freq_tick.
 	 */
-	if (arch_freq_counters_available(cpus))
+	if (support_scale_freq_tick(cpus))
 		return;
 
 	scale = (cur_freq << SCHED_CAPACITY_SHIFT) / max_freq;
