@@ -10,6 +10,7 @@
 
 #define pr_fmt(fmt)	"CPPC Cpufreq:"	fmt
 
+#include <linux/arch_topology.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -18,6 +19,7 @@
 #include <linux/dmi.h>
 #include <linux/time.h>
 #include <linux/vmalloc.h>
+#include <linux/workqueue.h>
 
 #include <asm/unaligned.h>
 
@@ -38,6 +40,11 @@
  */
 static struct cppc_cpudata **all_cpu_data;
 static bool boost_supported;
+
+static bool scale_freq_tick_registered;
+static DEFINE_PER_CPU(struct work_struct, cppc_work);
+static DEFINE_PER_CPU(struct cppc_perf_fb_ctrs, prev_perf_fb_ctrs);
+static DEFINE_PER_CPU(unsigned int, max_freq);
 
 struct cppc_workaround_oem_info {
 	char oem_id[ACPI_OEM_ID_SIZE + 1];
@@ -274,6 +281,7 @@ static int cppc_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	 */
 	policy->cpuinfo.min_freq = cppc_cpufreq_perf_to_khz(cpu, cpu->perf_caps.lowest_perf);
 	policy->cpuinfo.max_freq = cppc_cpufreq_perf_to_khz(cpu, cpu->perf_caps.nominal_perf);
+	per_cpu(max_freq, cpu_num) = policy->cpuinfo.max_freq;
 
 	policy->transition_delay_us = cppc_cpufreq_get_transition_delay_us(cpu_num);
 	policy->shared_type = cpu->shared_type;
@@ -287,6 +295,7 @@ static int cppc_cpufreq_cpu_init(struct cpufreq_policy *policy)
 			if (unlikely(i == policy->cpu))
 				continue;
 
+			per_cpu(max_freq, i) = policy->cpuinfo.max_freq;
 			memcpy(&all_cpu_data[i]->perf_caps, &cpu->perf_caps,
 			       sizeof(cpu->perf_caps));
 		}
@@ -372,7 +381,7 @@ static unsigned int cppc_cpufreq_get_rate(unsigned int cpunum)
 static int cppc_cpufreq_set_boost(struct cpufreq_policy *policy, int state)
 {
 	struct cppc_cpudata *cpudata;
-	int ret;
+	int ret, i;
 
 	if (!boost_supported) {
 		pr_err("BOOST not supported by CPU or firmware\n");
@@ -387,6 +396,9 @@ static int cppc_cpufreq_set_boost(struct cpufreq_policy *policy, int state)
 		policy->max = cppc_cpufreq_perf_to_khz(cpudata,
 					cpudata->perf_caps.nominal_perf);
 	policy->cpuinfo.max_freq = policy->max;
+
+	for_each_cpu(i, policy->related_cpus)
+		per_cpu(max_freq, i) = policy->cpuinfo.max_freq;
 
 	ret = freq_qos_update_request(policy->max_freq_req, policy->max);
 	if (ret < 0)
@@ -448,10 +460,41 @@ static void cppc_check_hisi_workaround(void)
 	acpi_put_table(tbl);
 }
 
+static void cppc_scale_freq_tick_workfn(struct work_struct *work)
+{
+	struct cppc_perf_fb_ctrs fb_ctrs = {0};
+	int cpu = raw_smp_processor_id();
+	struct cppc_cpudata *cpudata = all_cpu_data[cpu];
+	u64 rate;
+
+	if (cppc_get_perf_ctrs(cpu, &fb_ctrs)) {
+		pr_info("%s: cppc_get_perf_ctrs() failed\n", __func__);
+		return;
+	}
+
+	rate = cppc_get_rate_from_fbctrs(cpudata, per_cpu(prev_perf_fb_ctrs, cpu), fb_ctrs);
+	per_cpu(prev_perf_fb_ctrs, cpu) = fb_ctrs;
+
+	rate <<= SCHED_CAPACITY_SHIFT;
+	per_cpu(freq_scale, cpu) = div64_u64(rate, per_cpu(max_freq, cpu));
+}
+
+static void cppc_scale_freq_tick(void)
+{
+	int cpu = raw_smp_processor_id();
+
+	/*
+	 * cppc_get_perf_ctrs() can potentially sleep, call that from the right
+	 * context.
+	 */
+	schedule_work_on(cpu, &per_cpu(cppc_work, cpu));
+}
+
 static int __init cppc_cpufreq_init(void)
 {
 	int i, ret = 0;
 	struct cppc_cpudata *cpu;
+	struct cppc_perf_fb_ctrs fb_ctrs = {0};
 
 	if (acpi_disabled)
 		return -ENODEV;
@@ -469,6 +512,12 @@ static int __init cppc_cpufreq_init(void)
 		cpu = all_cpu_data[i];
 		if (!zalloc_cpumask_var(&cpu->shared_cpu_map, GFP_KERNEL))
 			goto out;
+
+		INIT_WORK(&per_cpu(cppc_work, i), cppc_scale_freq_tick_workfn);
+
+		ret = cppc_get_perf_ctrs(i, &fb_ctrs);
+		if (!ret)
+			per_cpu(prev_perf_fb_ctrs, i) = fb_ctrs;
 	}
 
 	ret = acpi_get_psd_map(all_cpu_data);
@@ -482,6 +531,13 @@ static int __init cppc_cpufreq_init(void)
 	ret = cpufreq_register_driver(&cppc_cpufreq_driver);
 	if (ret)
 		goto out;
+
+	/* Register for freq-invariance */
+	if (cppc_cpufreq_driver.get != hisi_cppc_cpufreq_get_rate &&
+	    !topology_set_scale_freq_tick(cppc_scale_freq_tick, cpu_possible_mask)) {
+		scale_freq_tick_registered = true;
+		pr_info("Registered cppc_scale_freq_tick()\n");
+	}
 
 	return ret;
 
@@ -502,6 +558,13 @@ static void __exit cppc_cpufreq_exit(void)
 {
 	struct cppc_cpudata *cpu;
 	int i;
+
+	if (scale_freq_tick_registered) {
+		topology_remove_scale_freq_tick(cppc_scale_freq_tick);
+
+		for_each_possible_cpu(i)
+			flush_work(&per_cpu(cppc_work, i));
+	}
 
 	cpufreq_unregister_driver(&cppc_cpufreq_driver);
 
