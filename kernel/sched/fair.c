@@ -8660,7 +8660,8 @@ static inline void update_sg_wakeup_stats(struct sched_domain *sd,
 static bool update_pick_idlest(struct sched_group *idlest,
 			       struct sg_lb_stats *idlest_sgs,
 			       struct sched_group *group,
-			       struct sg_lb_stats *sgs)
+			       struct sg_lb_stats *sgs,
+				   struct task_struct *p)
 {
 	if (sgs->group_type < idlest_sgs->group_type)
 		return true;
@@ -8693,22 +8694,42 @@ static bool update_pick_idlest(struct sched_group *idlest,
 		break;
 
 	case group_has_spare:
-		if(sysctl_sched_check_group_util == 0){
+		if(sysctl_sched_check_group_util == 0 || sgs->group_weight > 1){
+			if (idlest_sgs->idle_cpus >= sgs->idle_cpus)
+				return false;
+		} else  if(sysctl_sched_check_group_util == 1){
+			/* Select group with most idle CPUs */
+			if (idlest_sgs->idle_cpus > sgs->idle_cpus)
+				return false;
 
-		if (idlest_sgs->idle_cpus >= sgs->idle_cpus)
-			return false;
+			/* Select group with lowest group_util */
+			if (idlest_sgs->idle_cpus == sgs->idle_cpus &&
+				idlest_sgs->group_util <= sgs->group_util)
+				return false;
 
-		} else  {
+		} else if(sysctl_sched_check_group_util == 2){
+			/* Select group with most idle CPUs */
+			if (idlest_sgs->idle_cpus > sgs->idle_cpus)
+				return false;
 
-		/* Select group with most idle CPUs */
-		if (idlest_sgs->idle_cpus > sgs->idle_cpus)
-			return false;
+			/* Select group with lowest sum_nr_running */
+			if (idlest_sgs->idle_cpus == sgs->idle_cpus &&
+				(idlest_sgs->sum_nr_running <= sgs->sum_nr_running))
+				return false;
 
-		/* Select group with lowest group_util */
-		if (idlest_sgs->idle_cpus == sgs->idle_cpus &&
-			idlest_sgs->group_util <= sgs->group_util)
-			return false;
+		} else if(sysctl_sched_check_group_util == 3){
+			/* Select group with most idle CPUs */
+			if (idlest_sgs->idle_cpus > sgs->idle_cpus)
+				return false;
 
+			/* Select group with lowest nr_running */
+			if (idlest_sgs->idle_cpus == sgs->idle_cpus){
+				if(idlest_sgs->group_util <= sgs->group_util &&
+					idlest_sgs->sum_nr_running > sgs->sum_nr_running)
+						trace_sched_pick_idlest(p, idlest_sgs->group_util, idlest_sgs->sum_nr_running, sgs->group_util, sgs->sum_nr_running);
+						
+				return false;
+			}		
 		}
 		break;
 	}
@@ -8757,7 +8778,7 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 
 		update_sg_wakeup_stats(sd, group, sgs, p);
 
-		if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
+		if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs, p)) {
 			idlest = group;
 			idlest_sgs = *sgs;
 		}

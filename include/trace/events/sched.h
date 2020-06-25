@@ -523,6 +523,38 @@ TRACE_EVENT(sched_move_numa,
 			__entry->dst_cpu, __entry->dst_nid)
 );
 
+TRACE_EVENT(sched_pick_idlest,
+
+	TP_PROTO(struct task_struct *tsk, unsigned int i_gu, unsigned int i_nr, unsigned int s_gu, unsigned int s_nr),
+
+	TP_ARGS(tsk, i_gu, i_nr, s_gu, s_nr),
+
+	TP_STRUCT__entry(
+		__field( pid_t,	pid				)
+		__field( pid_t,	tgid			)
+		__field( pid_t,	ngid			)
+		__field( unsigned int,	i_gu	)
+		__field( unsigned int,	i_nr	)
+		__field( unsigned int,	s_gu	)
+		__field( unsigned int,	s_nr	)
+	),
+
+	TP_fast_assign(
+		__entry->pid	= task_pid_nr(tsk);
+		__entry->tgid	= task_tgid_nr(tsk);
+		__entry->ngid	= task_numa_group_id(tsk);
+		__entry->i_gu	= i_gu;
+		__entry->i_nr	= i_nr;
+		__entry->s_gu	= s_gu;
+		__entry->s_nr	= s_nr;
+	),
+
+	TP_printk("pid=%d tgid=%d ngid=%d i_gu=%d i_nr=%d s_gu=%d s_nr=%d",
+			__entry->pid, __entry->tgid, __entry->ngid,
+			__entry->i_gu, __entry->i_nr,
+			__entry->s_gu, __entry->s_nr)
+);
+
 DECLARE_EVENT_CLASS(sched_numa_pair_template,
 
 	TP_PROTO(struct task_struct *src_tsk, int src_cpu,
