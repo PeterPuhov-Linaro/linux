@@ -467,13 +467,17 @@ static void cppc_scale_freq_tick_workfn(struct work_struct *work)
 	struct cppc_cpudata *cpudata = all_cpu_data[cpu];
 	u64 rate;
 
-	if (cppc_get_perf_ctrs(cpu, &fb_ctrs)) {
-		pr_info("%s: cppc_get_perf_ctrs() failed\n", __func__);
-		return;
-	}
+	if(cppc_cpufreq_driver.get != hisi_cppc_cpufreq_get_rate){
+		if (cppc_get_perf_ctrs(cpu, &fb_ctrs)) {
+			pr_info("%s: cppc_get_perf_ctrs() failed\n", __func__);
+			return;
+		}
 
-	rate = cppc_get_rate_from_fbctrs(cpudata, per_cpu(prev_perf_fb_ctrs, cpu), fb_ctrs);
-	per_cpu(prev_perf_fb_ctrs, cpu) = fb_ctrs;
+		rate = cppc_get_rate_from_fbctrs(cpudata, per_cpu(prev_perf_fb_ctrs, cpu), fb_ctrs);
+		per_cpu(prev_perf_fb_ctrs, cpu) = fb_ctrs;
+	} else {
+		rate = hisi_cppc_cpufreq_get_rate(cpu);
+	}
 
 	rate <<= SCHED_CAPACITY_SHIFT;
 	per_cpu(freq_scale, cpu) = div64_u64(rate, per_cpu(max_freq, cpu));
@@ -533,8 +537,7 @@ static int __init cppc_cpufreq_init(void)
 		goto out;
 
 	/* Register for freq-invariance */
-	if (cppc_cpufreq_driver.get != hisi_cppc_cpufreq_get_rate &&
-	    !topology_set_scale_freq_tick(cppc_scale_freq_tick, cpu_possible_mask)) {
+	if (!topology_set_scale_freq_tick(cppc_scale_freq_tick, cpu_possible_mask)) {
 		scale_freq_tick_registered = true;
 		pr_info("Registered cppc_scale_freq_tick()\n");
 	}
