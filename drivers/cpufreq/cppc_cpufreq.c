@@ -460,6 +460,8 @@ static void cppc_check_hisi_workaround(void)
 	acpi_put_table(tbl);
 }
 
+static int freq_tick_counter = 0;
+
 static void cppc_scale_freq_tick_workfn(struct work_struct *work)
 {
 	struct cppc_perf_fb_ctrs fb_ctrs = {0};
@@ -481,6 +483,13 @@ static void cppc_scale_freq_tick_workfn(struct work_struct *work)
 
 	rate <<= SCHED_CAPACITY_SHIFT;
 	per_cpu(freq_scale, cpu) = div64_u64(rate, per_cpu(max_freq, cpu));
+	if(cpu == 0){
+		freq_tick_counter++;
+		if(freq_tick_counter >= 100){
+			pr_info("%s: freq_scale %ld \n", __func__, per_cpu(freq_scale, cpu));
+			freq_tick_counter = 0;
+		}
+	}
 }
 
 static void cppc_scale_freq_tick(void)
@@ -537,6 +546,7 @@ static int __init cppc_cpufreq_init(void)
 		goto out;
 
 	/* Register for freq-invariance */
+	pr_info("Register for freq-invariance\n");
 	if (!topology_set_scale_freq_tick(cppc_scale_freq_tick, cpu_possible_mask)) {
 		scale_freq_tick_registered = true;
 		pr_info("Registered cppc_scale_freq_tick()\n");
